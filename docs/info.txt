@@ -1,0 +1,234 @@
+Here is Claude's plan:
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ 拳皇 97 风格格斗游戏开发计划
+
+ Context
+
+ 用户希望开发一款类似拳皇 97 的格斗游戏，需要支持 Android、iOS 和 Web
+ 三个平台。这是一个从零开始的新项目，当前目录为空。
+
+ 技术方案选择
+
+ 推荐技术栈
+
+ 核心引擎：Phaser 3 + React Native/Expo
+
+ ┌─────────────┬─────────────────────────────────────────────────┐
+ │    平台     │                    技术方案                     │
+ ├─────────────┼─────────────────────────────────────────────────┤
+ │ Web         │ Phaser 3 (HTML5 Canvas/WebGL)                   │
+ ├─────────────┼─────────────────────────────────────────────────┤
+ │ Android/iOS │ Expo + react-native-webview 包裹 Phaser H5 游戏 │
+ └─────────────┴─────────────────────────────────────────────────┘
+
+ 选择理由：
+ 1. Phaser 3 是成熟的 2D 游戏框架，支持精灵动画、物理碰撞、音频管理
+ 2. 一套代码同时部署到三个平台
+ 3. Expo 简化了移动端打包和发布流程
+ 4. 格斗游戏对性能要求高，Phaser 的 WebGL 渲染比纯 React Native 动画更高效
+
+ 备选方案
+
+ - Pure React Native + Reanimated: 更适合 UI 密集型应用，游戏动画性能不如 Phaser
+ - Unity: 学习曲线陡峭，包体积大，对于 2D 格斗游戏过于重量级
+
+ 核心架构组件
+
+ 1. 游戏循环 (Game Loop)
+
+ - 固定时间步长更新 (fixed timestep): 60 FPS
+ - 渲染与逻辑分离
+
+ 2. 角色系统 (Character System)
+
+ Character (基类)
+ ├── Kyo (草薙京)
+ ├── Terry (饿狼)
+ └── ...
+
+ 状态机：
+ - IDLE (待机)
+ - WALK_FWD/BACK (前后走)
+ - CROUCH (蹲)
+ - JUMP (跳)
+ - PUNCH_LIGHT/MEDIUM/HARD (轻/中/重拳)
+ - KICK_LIGHT/MEDIUM/HARD (轻/中/重脚)
+ - BLOCK (防御)
+ - HIT (受击)
+ - KNOCKDOWN (倒地)
+ - SUPER_MOVE (必杀技)
+
+ 3. 碰撞检测 (Collision System)
+
+ - Hitbox (攻击框) vs Hurtbox (受击框)
+ - AABBox 碰撞检测
+ - 攻击帧数据驱动 (attack frames)
+
+ 4. 输入系统 (Input System)
+
+ - 虚拟摇杆 + 按键 (移动端)
+ - 键盘支持 (Web)
+ - 输入缓冲 (input buffering): 允许玩家提前输入指令
+ - 必杀技指令识别 (→↓↘ + P)
+
+ 5. 组合技系统 (Combo System)
+
+ - 连招检测
+ - 连击计数
+ - 特殊技取消 (cancel) 逻辑
+
+ 6. 游戏模式
+
+ - VS CPU
+ - VS Player (本地双人对战)
+ - 训练模式
+
+ 关键文件结构
+
+ kof97/
+ ├── app/                      # Expo 应用入口
+ │   ├── App.tsx
+ │   └── game/
+ ├── game/                     # Phaser 游戏核心
+ │   ├── scenes/
+ │   │   ├── BootScene.ts      # 资源加载
+ │   │   ├── MainMenuScene.ts  # 主菜单
+ │   │   ├── FightScene.ts     # 对战场景
+ │   │   └── GameOverScene.ts  # 结算
+ │   ├── entities/
+ │   │   ├── Fighter.ts        # 角色基类
+ │   │   ├── Hitbox.ts         # 碰撞盒
+ │   │   └── Projectile.ts     # 飞行道具
+ │   ├── systems/
+ │   │   ├── InputSystem.ts    # 输入处理
+ │   │   ├── CombatSystem.ts   # 战斗逻辑
+ │   │   ├── ComboSystem.ts    # 连招检测
+ │   │   └── StateMachine.ts   # 状态机
+ │   ├── config/
+ │   │   ├── characters.ts     # 角色配置
+ │   │   ├── moves.ts          # 招式数据
+ │   │   └── inputs.ts         # 输入映射
+ │   └── assets/               # 素材资源
+ │       ├── sprites/          # 精灵图
+ │       ├── audio/            # 音效
+ │       └── backgrounds/      # 背景图
+ ├── assets/                   # 原始素材
+ ├── app.json                  # Expo 配置
+ ├── package.json
+ └── tsconfig.json
+
+ 开发里程碑
+
+ Phase 1: 基础框架 (2-3 天)
+
+ - 初始化 Expo + Phaser 项目
+ - 搭建游戏循环和场景管理
+ - 实现角色精灵动画播放
+ - 基础移动 (走、跳、蹲)
+
+ Phase 2: 战斗系统 (3-4 天)
+
+ - 攻击判定框系统
+ - 伤害计算和血条 UI
+ - 受击反馈和硬直
+ - 防御系统
+
+ Phase 3: 输入与必杀技 (2-3 天)
+
+ - 虚拟控制器 UI
+ - 必杀技指令输入识别
+ - 超必杀技动画
+
+ Phase 4: 游戏模式 (2 天)
+
+ - 简单 AI
+ - 主菜单和角色选择
+ - 游戏结束画面
+
+ Phase 5: 打包发布 (1-2 天)
+
+ - Web 构建
+ - Android APK 打包
+ - iOS 打包
+
+ 技术挑战与解决方案
+
+ ┌────────────┬────────────────────────────────────────────────┐
+ │    挑战    │                    解决方案                    │
+ ├────────────┼────────────────────────────────────────────────┤
+ │ 移动端性能 │ 限制同屏精灵数量，使用纹理图集 (texture atlas) │
+ ├────────────┼────────────────────────────────────────────────┤
+ │ 输入延迟   │ 输入缓冲队列，预测回滚 (简化版)                │
+ ├────────────┼────────────────────────────────────────────────┤
+ │ 跨平台适配 │ 响应式布局，触摸/键盘双支持                    │
+ ├────────────┼────────────────────────────────────────────────┤
+ │ 素材资源   │ 使用开源精灵或简化像素风格原型                 │
+ └────────────┴────────────────────────────────────────────────┘
+
+ 验证步骤
+
+ 1. 开发环境: npm install + npx expo start
+ 2. Web 测试: npx expo export --platform web
+ 3. 移动端: 扫描 Expo QR 码在真机测试
+ 4. 打包: eas build --platform android/ios
+
+ 下一步
+
+ 需要用户确认:
+ 1. 是否采用 Phaser + Expo 技术栈？
+ 2. 角色美术素材如何处理？(自己绘制/使用开源素材/简化像素风)
+ 3. 优先开发哪个平台？
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+ Claude has written up a plan and is ready to execute. Would you like to proceed?
+
+ ❯ 1. Yes, auto-accept edits
+   2. Yes, manually approve edits
+   3. Tell Claude what to change
+      shift+tab to approve with this feedback
+
+ ctrl-g to edit in VS Code · ~/.claude/plans/tidy-humming-journal.md
+     ├────────────┼────────────────────────────────────────────────┤
+     │ 输入延迟   │ 输入缓冲队列，预测回滚 (简化版)                │
+     ├────────────┼────────────────────────────────────────────────┤
+     │ 跨平台适配 │ 响应式布局，触摸/键盘双支持                    │
+     ├────────────┼────────────────────────────────────────────────┤
+     │ 素材资源   │ 使用开源精灵或简化像素风格原型                 │
+     └────────────┴────────────────────────────────────────────────┘
+
+     验证步骤
+
+     1. 开发环境: npm install + npx expo start
+     2. Web 测试: npx expo export --platform web
+     3. 移动端: 扫描 Expo QR 码在真机测试
+     4. 打包: eas build --platform android/ios
+
+     下一步
+
+     需要用户确认:
+     1. 是否采用 Phaser + Expo 技术栈？
+     2. 角色美术素材如何处理？(自己绘制/使用开源素材/简化像素风)
+     3. 优先开发哪个平台？
+
+● 现在开始实现。我将创建项目基础框架。
+
+● Bash(npx create-expo-app@latest . --template blank-typescript --yes)
+  ⎿  Running…
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   npx create-expo-app@latest . --template blank-typescript --yes
+   Initialize Expo TypeScript project
+
+ This command requires approval
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don’t ask again for: npx create-expo-app@latest *
+   3. No
+
+ Esc to cancel · Tab to amend · ctrl+e to explain
+
+Uncaught TypeError: Cannot read properties of undefined (reading 'Scene')
+    at MainMenuScene.ts:3:43

@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>拳皇'97 - 对决传说</title>
+    <style>
+        * {
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: linear-gradient(145deg, #0a0f1e 0%, #0c1222 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Courier New', 'Fira Code', 'Monaco', monospace;
+        }
+
+        .game-container {
+            background: #000000aa;
+            border-radius: 2rem;
+            padding: 1rem;
+            box-shadow: 0 20px 35px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+
+        canvas {
+            display: block;
+            margin: 0 auto;
+            border-radius: 1rem;
+            box-shadow: 0 0 0 3px #ffd966, 0 10px 25px rgba(0,0,0,0.5);
+            cursor: none;
+        }
+
+        .info-panel {
+            margin-top: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #000000aa;
+            backdrop-filter: blur(4px);
+            border-radius: 2rem;
+            padding: 0.5rem 1.5rem;
+            color: #f5e7d9;
+            text-shadow: 0 2px 0 #3a2a1f;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1.5rem;
+            background: #1f1a2e;
+            padding: 0.4rem 1rem;
+            border-radius: 2rem;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .controls span {
+            color: #ffb347;
+        }
+
+        .status {
+            font-size: 1.2rem;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+
+        button {
+            background: #d43f1f;
+            border: none;
+            color: white;
+            font-weight: bold;
+            font-family: monospace;
+            padding: 0.3rem 1rem;
+            border-radius: 2rem;
+            cursor: pointer;
+            transition: 0.1s linear;
+            box-shadow: 0 3px 0 #631e0a;
+        }
+
+        button:active {
+            transform: translateY(2px);
+            box-shadow: none;
+        }
+
+        @media (max-width: 880px) {
+            .controls {
+                font-size: 0.6rem;
+                gap: 0.8rem;
+            }
+            .status {
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<div>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="960" height="540"></canvas>
+        <div class="info-panel">
+            <div class="controls">
+                🎮 P1 草薙京 &nbsp;| <span>←→↑↓</span> &nbsp;攻击: <span>[J]</span> &nbsp;踢: <span>[K]</span> &nbsp;大招: <span>[L]</span>
+            </div>
+            <div class="status" id="vsStatus">🔥 READY TO FIGHT! 🔥</div>
+            <button id="resetBtn">⚡ 重新开局 ⚡</button>
+        </div>
+    </div>
+    <div style="text-align: center; margin-top: 10px; font-size: 12px; color:#b9a77d;">
+        ⚡ 拳皇'97 精神续作 · 热血格斗 ⚡
+    </div>
+</div>
+
+<script>
+    (function(){
+        // ---------- CANVAS ----------
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 游戏核心帧率
+        let animationId = null;
+        let lastTimestamp = 0;
+
+        // ---------- 全局状态 ----------
+        let gameOver = false;
+        let winner = null;   // 'p1' or 'p2'
+        let roundActive = true;
+        let fightTimer = 60;     // 60秒倒计时 (秒)
+        let lastTimerUpdate = 0;
+
+        // 角色定义
+        class Fighter {
+            constructor(x, side, name, palette) {
+                this.x = x;
+                this.y = 380;       // 地面Y坐标 (540-160)
+                this.side = side;    // 'left' or 'right'
+                this.name = name;
+                this.width = 48;
+                this.height = 72;
+                this.health = 100;
+                this.maxHealth = 100;
+                this.facingRight = (side === 'left'); // 左方角色朝右
+                
+                // 状态
+                this.hitTimer = 0;
+                this.blockStun = 0;
+                this.attackTimer = 0;
+                this.attackType = null; // 'punch', 'kick', 'super'
+                this.invincible = false;
+                this.superMeter = 0;     // 怒气值 0-100
+                
+                // 移动属性
+                this.vx = 0;
+                this.grounded = true;
+                this.jumping = false;
+                this.jumpVel = 0;
+                
+                // 硬直/受击
+                this.stunTimer = 0;
+                
+                // 冷却
+                this.superCooldown = 0;   // 大招CD帧数
+                
+                // 外观配色
+                this.palette = palette;    // 简单色调
+            }
+            
+            reset(x, side) {
+                this.x = x;
+                this.side = side;
+                this.health = 100;
+                this.superMeter = 0;
+                this.facingRight = (side === 'left');
+                this.hitTimer = 0;
+                this.blockStun = 0;
+                this.attackTimer = 0;
+                this.attackType = null;
+                this.invincible = false;
+                this.vx = 0;
+                this.grounded = true;
+                this.jumping = false;
+                this.jumpVel = 0;
+                this.stunTimer = 0;
+                this.superCooldown = 0;
+            }
+            
+            update(input, opponent, isPlayerOne) {
+                if (this.stunTimer > 0) {
+                    this.stunTimer--;
+                    // 受击时无法行动
+                    this.updateMovementOnlyPhysics();
+                    return;
+                }
+                if (this.blockStun > 0) {
+                    this.blockStun--;
+                    this.updateMovementOnlyPhysics();
+                    return;
+                }
+                
+                // 攻击动作持续
+                if (this.attackTimer > 0) {
+                    this.attackTimer--;
+                    if (this.attackTimer <= 0) {
+                        this.attackType = null;
+                        this.invincible = false;
+                    } else {
+                        // 攻击帧中检测命中
+                        if (this.attackType) {
+                            this.checkAttackCollision(opponent, this.attackType);
+                        }
+                    }
+                } else {
+                    this.attackType = null;
+                    this.invincible = false;
+                }
+                
+                // 大招冷却减少
+                if (this.superCooldown > 0) this.superCooldown--;
+                
+                // 输入处理 (仅当未硬直且未攻击硬直? 攻击时不能移动但可使用额外? 拳皇惯例攻击中可微调,简化:攻击时不可移动)
+                const canAct = (this.stunTimer === 0 && this.blockStun === 0 && this.attackTimer === 0);
+                if (canAct) {
+                    let move = 0;
+                    if (input.left) move = -1;
+                    if (input.right) move = 1;
+                    // 移动
+                    if (move !== 0) {
+                        let speed = 5.2;
+                        this.x += move * speed;
+                        // 边界限制 & 强制面对方向
+                        if (this.side === 'left') {
+                            if (this.x < 50) this.x = 50;
+                            if (this.x > opponent.x - 45) this.x = opponent.x - 45;
+                            if (move > 0) this.facingRight = true;
+                            if (move < 0) this.facingRight = false;
+                        } else {
+                            if (this.x > canvas.width - 70) this.x = canvas.width - 70;
+                            if (this.x < opponent.x + 45) this.x = opponent.x + 45;
+                            if (move < 0) this.facingRight = false;
+                            if (move > 0) this.facingRight = true;
+                        }
+                    }
+                    
+                    // 跳跃
+                    if (input.up && this.grounded && !this.jumping) {
+                        this.jumping = true;
+                        this.grounded = false;
+                        this.jumpVel = -11.5;
+                    }
+                    
+                    // 攻击: 拳
+                    if (input.punch && this.attackTimer === 0 && this.superCooldown === 0) {
+                        this.attackTimer = 12;
+                        this.attackType = 'punch';
+                        this.invincible = false;
+                    }
+                    // 踢
+                    else if (input.kick && this.attackTimer === 0 && this.superCooldown === 0) {
+                        this.attackTimer = 14;
+                        this.attackType = 'kick';
+                        this.invincible = false;
+                    }
+                    // 大招 (消耗能量)
+                    else if (input.superAtk && this.attackTimer === 0 && this.superMeter >= 100 && this.superCooldown === 0) {
+                        this.attackTimer = 26;
+                        this.attackType = 'super';
+                        this.invincible = true;   // 超杀无敌
+                        this.superMeter = 0;
+                        this.superCooldown = 40;
+                    }
+                }
+                
+                // 更新怒气: 攻击或被攻击增加 (简单增加)
+                // 正常自然增长，实际战斗逻辑在命中时增加，被动增加少量
+                if (this.superMeter < 100 && this.attackTimer === 0 && this.stunTimer === 0) {
+                    this.superMeter = Math.min(100, this.superMeter + 0.15);
+                }
+                
+                this.updateMovementOnlyPhysics();
+            }
+            
+            updateMovementOnlyPhysics() {
+                // 重力跳跃物理
+                if (!this.grounded) {
+                    this.jumpVel += 0.65;
+                    this.y += this.jumpVel;
+                    if (this.y >= 380) {
+                        this.y = 380;
+                        this.grounded = true;
+                        this.jumping = false;
+                        this.jumpVel = 0;
+                    }
+                } else {
+                    this.y = 380;
+                }
+                // 水平阻尼
+                this.vx *= 0.9;
+                this.x += this.vx;
+                // 边界再次限制
+                if (this.side === 'left') {
+                    if (this.x < 40) this.x = 40;
+                } else {
+                    if (this.x > canvas.width - 70) this.x = canvas.width - 70;
+                }
+            }
+            
+            // 碰撞检测与伤害
+            checkAttackCollision(target, type) {
+                if (target.stunTimer > 0) return; // 目标硬直中不再重复受击
+                // 矩形碰撞粗糙判断
+                let myLeft = this.x - 25;
+                let myRight = this.x + 25;
+                let myTop = this.y - 50;
+                let myBottom = this.y + 20;
+                let tLeft = target.x - 28;
+                let tRight = target.x + 28;
+                let tTop = target.y - 55;
+                let tBottom = target.y + 25;
+                if (myRight > tLeft && myLeft < tRight && myBottom > tTop && myTop < tBottom) {
+                    // 命中！
+                    let damage = 0;
+                    let addMeter = 0;
+                    switch(type) {
+                        case 'punch': damage = 9; addMeter = 5; break;
+                        case 'kick': damage = 11; addMeter = 6; break;
+                        case 'super': damage = 30; addMeter = 0; break;
+                        default: damage = 5;
+                    }
+                    // 防御? (简化: 如果目标有block 帧? 为了爽感不做精确防御)
+                    target.health = Math.max(0, target.health - damage);
+                    target.stunTimer = 11;
+                    target.hitTimer = 6;
+                    // 被击退
+                    let dir = (target.x - this.x) > 0 ? 1 : -1;
+                    target.vx = dir * 5;
+                    // 命中者增加怒气
+                    this.superMeter = Math.min(100, this.superMeter + addMeter);
+                    // 大招命中额外动画
+                    if (type === 'super') {
+                        this.superMeter = Math.min(100, this.superMeter + 5);
+                    }
+                    // 防止一帧多次伤害：攻击命中后短暂重置攻击标志？ 在同一个攻击持续帧只造成一次伤害，用额外标记
+                    // 简单粗暴置空attackType避免多段 (拳皇多段可选但伤害太高，锁定一次)
+                    if (this.attackType !== null){
+                        // 避免持续帧多次扣血，让本次攻击不再触发额外伤害
+                        this.attackType = null;
+                        this.attackTimer = 2; // 快速结束攻击动画
+                    }
+                }
+            }
+            
+            draw(ctx) {
+                // 闪白受击效果
+                let isHit = (this.stunTimer > 0 || this.hitTimer > 0);
+                let bodyColor = this.palette.body;
+                if (isHit) bodyColor = "#ffffff";
+                
+                // 绘制阴影
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = "#2b1e2f";
+                ctx.fillRect(this.x-22, this.y+8, 44, 12);
+                ctx.fillStyle = "#00000066";
+                ctx.fillRect(this.x-20, this.y+6, 40, 8);
+                
+                // 身体朝向
+                let direction = this.facingRight ? 1 : -1;
+                ctx.save();
+                if(direction === -1){
+                    ctx.translate(this.x*2 - this.x, 0);
+                    ctx.scale(-1,1);
+                    let drawX = -this.x;
+                    this.drawBody(ctx, drawX, this.y, isHit);
+                } else {
+                    this.drawBody(ctx, this.x, this.y, isHit);
+                }
+                ctx.restore();
+                
+                // 绘制名字与血条
+                ctx.font = "bold 16m 'Courier New'";
+                ctx.fillStyle = "#ffd966";
+                ctx.shadowBlur = 0;
+                ctx.fillText(this.name, this.x-25, this.y-50);
+                // 怒气槽
+                let meterWidth = 70;
+                let meterX = (this.side === 'left') ? 30 : canvas.width - 100;
+                let meterY = 30;
+                ctx.fillStyle = "#3a2a1f";
+                ctx.fillRect(meterX, meterY, meterWidth, 12);
+                ctx.fillStyle = "#f5a623";
+                ctx.fillRect(meterX, meterY, meterWidth * (this.superMeter/100), 12);
+                ctx.fillStyle = "#ffd966";
+                ctx.font = "10px monospace";
+                ctx.fillText("POWER", meterX, meterY-2);
+                
+                // 攻击特效
+                if(this.attackTimer > 0 && this.attackType){
+                    ctx.globalAlpha = 0.8;
+                    ctx.fillStyle = (this.attackType === 'super') ? "#ff3366" : "#ffaa44";
+                    ctx.beginPath();
+                    ctx.arc(this.x + (this.facingRight?30:-30), this.y-20, 18, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                }
+            }
+            
+            drawBody(ctx, x, y, isHit){
+                // 上衣/裤子
+                ctx.fillStyle = isHit ? "#ccc" : this.palette.body;
+                ctx.fillRect(x-20, y-50, 40, 58);
+                ctx.fillStyle = isHit ? "#aaa" : this.palette.pants;
+                ctx.fillRect(x-18, y-8, 36, 32);
+                // 头发
+                ctx.fillStyle = "#3b2a1f";
+                ctx.beginPath();
+                ctx.ellipse(x, y-58, 18, 22, 0, 0, Math.PI*2);
+                ctx.fill();
+                ctx.fillStyle = "#e0b05c";
+                ctx.beginPath();
+                ctx.arc(x-8, y-58, 7, 0, Math.PI*2);
+                ctx.arc(x+8, y-58, 7, 0, Math.PI*2);
+                ctx.fill();
+                // 眼睛
+                ctx.fillStyle = "#000";
+                ctx.beginPath();
+                ctx.arc(x-10, y-52, 3, 0, Math.PI*2);
+                ctx.arc(x+10, y-52, 3, 0, Math.PI*2);
+                ctx.fill();
+                ctx.fillStyle = "white";
+                ctx.beginPath();
+                ctx.arc(x-12, y-54, 1, 0, Math.PI*2);
+                ctx.arc(x+8, y-54, 1, 0, Math.PI*2);
+                ctx.fill();
+                // 头带
+                ctx.fillStyle = "#c22";
+                ctx.fillRect(x-22, y-64, 44, 6);
+            }
+        }
+        
+        // ----- 输入映射 -----
+        class InputState {
+            constructor() {
+                this.left = false;
+                this.right = false;
+                this.up = false;
+                this.down = false;
+                this.punch = false;
+                this.kick = false;
+                this.superAtk = false;
+            }
+            reset(){
+                this.left = false;
+                this.right = false;
+                this.up = false;
+                this.down = false;
+                this.punch = false;
+                this.kick = false;
+                this.superAtk = false;
+            }
+        }
+        
+        let p1Input = new InputState();
+        let p2Input = new InputState();
+        
+        // 角色工厂
+        let p1 = new Fighter(180, 'left', '草薙京', { body: "#d43f1f", pants: "#2c2820" });
+        let p2 = new Fighter(780, 'right', '八神庵', { body: "#882c5f", pants: "#2d1f2a" });
+        
+        // 辅助UI
+        const vsStatusDiv = document.getElementById('vsStatus');
+        const resetBtn = document.getElementById('resetBtn');
+        
+        function resetGame() {
+            gameOver = false;
+            winner = null;
+            roundActive = true;
+            fightTimer = 60;
+            p1.reset(180, 'left');
+            p2.reset(780, 'right');
+            p1.health = 100;
+            p2.health = 100;
+            p1.superMeter = 0;
+            p2.superMeter = 0;
+            p1.attackTimer = 0;
+            p2.attackTimer = 0;
+            p1.stunTimer = 0;
+            p2.stunTimer = 0;
+            vsStatusDiv.innerText = "⚔️ FIGHT! ⚔️";
+            setTimeout(()=>{
+                if(!gameOver) vsStatusDiv.innerText = "🔥 BATTLE 🔥";
+            }, 1500);
+        }
+        
+        // 每帧游戏逻辑更新
+        function updateGame() {
+            if(gameOver) return;
+            
+            // 倒计时 (每秒)
+            if(performance.now() - lastTimerUpdate >= 1000){
+                lastTimerUpdate = performance.now();
+                if(fightTimer > 0 && !gameOver){
+                    fightTimer--;
+                    if(fightTimer <= 0){
+                        // 时间结束，按血量判胜
+                        if(p1.health > p2.health) winner = 'p1';
+                        else if(p2.health > p1.health) winner = 'p2';
+                        else winner = 'p1'; // 平局默认玩家胜
+                        gameOver = true;
+                        roundActive = false;
+                        vsStatusDiv.innerText = winner === 'p1' ? "🏆 草薙京 胜利！ 🏆" : "🏆 八神庵 胜利！ 🏆";
+                    }
+                }
+            }
+            
+            // 更新双方前检查生命值结束
+            if(p1.health <= 0){
+                gameOver = true;
+                winner = 'p2';
+                vsStatusDiv.innerText = "💀 八神庵 完胜！ 💀";
+            } else if(p2.health <= 0){
+                gameOver = true;
+                winner = 'p1';
+                vsStatusDiv.innerText = "✨ 草薙京 胜利！ ✨";
+            }
+            
+            if(gameOver) return;
+            
+            // 角色更新（传入对方用于攻击碰撞和边界）
+            p1.update(p1Input, p2, true);
+            p2.update(p2Input, p1, false);
+            
+            // 附加限制: 避免穿越
+            if(p1.x > p2.x - 40) p1.x = p2.x - 40;
+            if(p2.x < p1.x + 40) p2.x = p1.x + 40;
+            
+            // 双方自然回复微量的怒气增加可玩性
+            if(p1.superMeter<100 && p1.stunTimer===0) p1.superMeter = Math.min(100, p1.superMeter+0.08);
+            if(p2.superMeter<100 && p2.stunTimer===0) p2.superMeter = Math.min(100, p2.superMeter+0.08);
+        }
+        
+        // 绘制所有UI及血条
+        function drawUI(){
+            // 血条背景
+            ctx.fillStyle = "#3a2a2a";
+            ctx.fillRect(40, 20, 280, 24);
+            ctx.fillRect(canvas.width-320, 20, 280, 24);
+            // 血条前景
+            let p1Percent = p1.health / p1.maxHealth;
+            let p2Percent = p2.health / p2.maxHealth;
+            ctx.fillStyle = "#e34d3a";
+            ctx.fillRect(40, 20, 280 * p1Percent, 24);
+            ctx.fillStyle = "#3a6ea5";
+            ctx.fillRect(canvas.width-320, 20, 280 * p2Percent, 24);
+            ctx.fillStyle = "#f9e0a0";
+            ctx.font = "bold 18m 'Courier New'";
+            ctx.shadowBlur = 0;
+            ctx.fillText("草薙京", 45, 18);
+            ctx.fillText("八神庵", canvas.width-155, 18);
+            // 倒计时显示
+            ctx.font = "bold 32 monospace";
+            ctx.fillStyle = "#ffec80";
+            ctx.shadowBlur = 0;
+            let minutes = Math.floor(fightTimer / 60);
+            let secs = fightTimer % 60;
+            let timerStr = `${minutes}:${secs < 10 ? '0'+secs : secs}`;
+            ctx.fillText(timerStr, canvas.width/2-35, 60);
+            
+            // 大招特效提示
+            if(p1.superMeter >= 100){
+                ctx.fillStyle = "gold";
+                ctx.font = "bold 12px monospace";
+                ctx.fillText("★ MAX超杀 ★", 45, 75);
+            }
+            if(p2.superMeter >= 100){
+                ctx.fillStyle = "gold";
+                ctx.font = "bold 12px monospace";
+                ctx.fillText("★ MAX超杀 ★", canvas.width-150, 75);
+            }
+            if(gameOver){
+                ctx.font = "bold 34 'Courier New'";
+                ctx.fillStyle = "#ffeaa7";
+                ctx.shadowBlur = 8;
+                ctx.fillText(winner === 'p1' ? "WINNER: KUSANAGI" : "WINNER: IORI", canvas.width/2-150, canvas.height/2-60);
+            }
+        }
+        
+        // 键盘事件
+        function handleKeyDown(e) {
+            let key = e.key;
+            // 防止页面滚动
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyJ","KeyK","KeyL","KeyU","KeyI","KeyO"].includes(key)) e.preventDefault();
+            // P1 控制
+            if(key === 'ArrowLeft') p1Input.left = true;
+            if(key === 'ArrowRight') p1Input.right = true;
+            if(key === 'ArrowUp') p1Input.up = true;
+            if(key === 'ArrowDown') p1Input.down = true;
+            if(key === 'j' || key === 'J') p1Input.punch = true;
+            if(key === 'k' || key === 'K') p1Input.kick = true;
+            if(key === 'l' || key === 'L') p1Input.superAtk = true;
+            
+            // P2 控制 (U,I,O)
+            if(key === 'u' || key === 'U') p2Input.punch = true;
+            if(key === 'i' || key === 'I') p2Input.kick = true;
+            if(key === 'o' || key === 'O') p2Input.superAtk = true;
+            if(key === 'a' || key === 'A') p2Input.left = true;
+            if(key === 'd' || key === 'D') p2Input.right = true;
+            if(key === 'w' || key === 'W') p2Input.up = true;
+            if(key === 's' || key === 'S') p2Input.down = true;
+        }
+        
+        function handleKeyUp(e) {
+            let key = e.key;
+            if(key === 'ArrowLeft') p1Input.left = false;
+            if(key === 'ArrowRight') p1Input.right = false;
+            if(key === 'ArrowUp') p1Input.up = false;
+            if(key === 'ArrowDown') p1Input.down = false;
+            if(key === 'j' || key === 'J') p1Input.punch = false;
+            if(key === 'k' || key === 'K') p1Input.kick = false;
+            if(key === 'l' || key === 'L') p1Input.superAtk = false;
+            
+            if(key === 'u' || key === 'U') p2Input.punch = false;
+            if(key === 'i' || key === 'I') p2Input.kick = false;
+            if(key === 'o' || key === 'O') p2Input.superAtk = false;
+            if(key === 'a' || key === 'A') p2Input.left = false;
+            if(key === 'd' || key === 'D') p2Input.right = false;
+            if(key === 'w' || key === 'W') p2Input.up = false;
+            if(key === 's' || key === 'S') p2Input.down = false;
+        }
+        
+        // 动画循环
+        function gameLoop(){
+            updateGame();
+            // 绘制背景 (擂台)
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.fillStyle = "#253746";
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+            ctx.fillStyle = "#6f4f37";
+            ctx.fillRect(0, canvas.height-90, canvas.width, 90);
+            for(let i=0;i<12;i++){
+                ctx.fillStyle = "#ad8b60";
+                ctx.fillRect(i*80, canvas.height-95, 35, 8);
+            }
+            p1.draw(ctx);
+            p2.draw(ctx);
+            drawUI();
+            animationId = requestAnimationFrame(gameLoop);
+        }
+        
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        resetBtn.addEventListener('click', ()=>{
+            resetGame();
+            gameOver = false;
+            winner = null;
+            fightTimer = 60;
+            lastTimerUpdate = performance.now();
+        });
+        
+        // 启动游戏
+        resetGame();
+        lastTimerUpdate = performance.now();
+        gameLoop();
+    })();
+</script>
+</body>
+</html>

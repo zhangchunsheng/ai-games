@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KOF 97 - Fighting Game</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1a1a2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #game-container {
+      width: 800px;
+      height: 450px;
+    }
+    #controls-help {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      text-align: center;
+      pointer-events: none;
+    }
+    #controls-help h3 { color: #ff0; margin-bottom: 5px; }
+    #controls-help p { margin: 3px 0; }
+  </style>
+</head>
+<body>
+  <div id="game-container"></div>
+  <div id="controls-help">
+    <h3>Controls</h3>
+    <p>Move: Arrow Keys / WASD | LP: Z | MP: X | HP: C | LK: , | MK: . | HK: /</p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <script>
+// === State Machine ===
+const FighterState = {
+  IDLE: 'idle',
+  WALK_FORWARD: 'walk_forward',
+  WALK_BACK: 'walk_back',
+  CROUCH: 'crouch',
+  JUMP: 'jump',
+  ATTACK_LP: 'attack_lp',
+  ATTACK_MP: 'attack_mp',
+  ATTACK_HP: 'attack_hp',
+  ATTACK_LK: 'attack_lk',
+  ATTACK_MK: 'attack_mk',
+  ATTACK_HK: 'attack_hk',
+  BLOCK: 'block',
+  HIT: 'hit',
+  KNOCKDOWN: 'knockdown',
+  SUPER: 'super',
+};
+
+const CANCELABLE_STATES = ['attack_lp', 'attack_mp', 'attack_lk', 'attack_mk'];
+
+class StateMachine {
+  constructor(initialState) {
+    this.currentState = initialState;
+    this.stateEnterTime = Date.now();
+  }
+
+  getState() { return this.currentState; }
+
+  canTransition(to) {
+    if (to === FighterState.IDLE) return true;
+    if (this.currentState === to) return false;
+    if (this.currentState === FighterState.KNOCKDOWN) return false;
+    if (this.currentState === FighterState.HIT) return to === FighterState.BLOCK;
+    if (CANCELABLE_STATES.includes(this.currentState)) return true;
+    return [FighterState.IDLE, FighterState.WALK_FORWARD, FighterState.WALK_BACK, FighterState.CROUCH].includes(this.currentState);
+  }
+
+  transition(newState, force = false) {
+    if (!force && !this.canTransition(newState)) return false;
+    this.currentState = newState;
+    this.stateEnterTime = Date.now();
+    return true;
+  }
+
+  isAttacking() { return this.currentState.startsWith('attack_') || this.currentState === FighterState.SUPER; }
+  isGrounded() { return [FighterState.IDLE, FighterState.WALK_FORWARD, FighterState.WALK_BACK, FighterState.CROUCH, FighterState.BLOCK, ...CANCELABLE_STATES].includes(this.currentState); }
+}
+
+// === Character Configs ===
+const KYO_CONFIG = {
+  id: 'kyo', name: 'Kyo', walkSpeed: 5, jumpForce: -15, maxHealth: 100,
+  moves: {
+    lp: { name: 'Jab', damage: 3, startup: 3, active: 2, recovery: 4, hitStun: 12, knockdown: false },
+    mp: { name: 'Strong', damage: 6, startup: 5, active: 3, recovery: 8, hitStun: 16, knockdown: false },
+    hp: { name: 'Fierce', damage: 10, startup: 8, active: 4, recovery: 12, hitStun: 20, knockdown: true },
+    lk: { name: 'Short', damage: 3, startup: 4, active: 2, recovery: 5, hitStun: 12, knockdown: false },
+    mk: { name: 'Forward', damage: 7, startup: 6, active: 3, recovery: 9, hitStun: 16, knockdown: false },
+    hk: { name: 'Roundhouse', damage: 11, startup: 10, active: 5, recovery: 14, hitStun: 22, knockdown: true },
+  }
+};
+
+const TERRY_CONFIG = {
+  id: 'terry', name: 'Terry', walkSpeed: 5.5, jumpForce: -14, maxHealth: 100,
+  moves: {
+    lp: { name: 'Jab', damage: 3, startup: 3, active: 2, recovery: 4, hitStun: 12, knockdown: false },
+    mp: { name: 'Strong', damage: 6, startup: 5, active: 3, recovery: 8, hitStun: 16, knockdown: false },
+    hp: { name: 'Fierce', damage: 10, startup: 8, active: 4, recovery: 12, hitStun: 20, knockdown: true },
+    lk: { name: 'Short', damage: 3, startup: 4, active: 2, recovery: 5, hitStun: 12, knockdown: false },
+    mk: { name: 'Forward', damage: 7, startup: 6, active: 3, recovery: 9, hitStun: 16, knockdown: false },
+    hk: { name: 'Roundhouse', damage: 11, startup: 10, active: 5, recovery: 14, hitStun: 22, knockdown: true },
+  }
+};
+
+// === Input System ===
+class InputSystem {
+  constructor(scene) {
+    this.scene = scene;
+    this.keys = {};
+    this.setupKeyboard();
+  }
+
+  setupKeyboard() {
+    const keyboard = this.scene.input.keyboard;
+    this.keys = {
+      left: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT),
+      right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT),
+      up: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP),
+      down: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN),
+      lp: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z),
+      mp: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X),
+      hp: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C),
+      lk: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.COMMA),
+      mk: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.PERIOD),
+      hk: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SLASH),
+    };
+  }
+
+  getDirection() {
+    if (this.keys.left.isDown && !this.keys.right.isDown) return -1;
+    if (this.keys.right.isDown && !this.keys.left.isDown) return 1;
+    return 0;
+  }
+
+  isCrouching() { return this.keys.down.isDown; }
+  isBlocking(fighterDir) {
+    return (fighterDir > 0 && this.keys.left.isDown) || (fighterDir < 0 && this.keys.right.isDown);
+  }
+
+  getAttack() {
+    if (this.keys.lp.isDown) return 'lp';
+    if (this.keys.mp.isDown) return 'mp';
+    if (this.keys.hp.isDown) return 'hp';
+    if (this.keys.lk.isDown) return 'lk';
+    if (this.keys.mk.isDown) return 'mk';
+    if (this.keys.hk.isDown) return 'hk';
+    return null;
+  }
+
+  jumpPressed() { return this.keys.up.isDown; }
+}
+
+// === Fighter Class ===
+class Fighter extends Phaser.Physics.Arcade.Sprite {
+  constructor(scene, x, y, config, direction) {
+    super(scene, x, y, 'fighter');
+    this.config = config;
+    this.health = config.maxHealth;
+    this.direction = direction;
+    this.stateMachine = new StateMachine(FighterState.IDLE);
+    this.currentMove = null;
+    this.moveFrameIndex = 0;
+    this.groundY = y;
+    this.isGrounded = true;
+    this.hitboxes = [];
+    this.damageFlash = 0;
+    this.comboCount = 0;
+    this.opponent = null;
+
+    scene.add.existing(this);
+    scene.physics.add.existing(this);
+
+    this.setDisplaySize(60, 120);
+    this.setOrigin(0.5, 1);
+    this.setBounce(0);
+    this.setDragX(0);
+    this.setGravityY(800);
+  }
+
+  setOpponent(opp) { this.opponent = opp; }
+
+  getHitboxes() { return this.hitboxes.filter(h => h.isActive); }
+  clearHitboxes() { this.hitboxes = []; }
+
+  startMove(move) {
+    if (this.stateMachine.isAttacking() || !move) return false;
+    this.currentMove = move;
+    this.moveFrameIndex = 0;
+    this.stateMachine.transition('attack_' + (move.name.includes('Punch') ? 'lp' : 'lk'));
+    return true;
+  }
+
+  updateMove() {
+    if (!this.currentMove) return;
+    this.moveFrameIndex++;
+    const totalFrames = this.currentMove.startup + this.currentMove.active + this.currentMove.recovery;
+
+    if (this.moveFrameIndex >= totalFrames) {
+      this.currentMove = null;
+      this.clearHitboxes();
+      if (this.isGrounded) this.stateMachine.transition(FighterState.IDLE);
+    }
+
+    // Update hitbox during active frames
+    this.hitboxes = [];
+    if (this.moveFrameIndex >= this.currentMove.startup &&
+        this.moveFrameIndex < this.currentMove.startup + this.currentMove.active) {
+      const hitboxX = this.direction === 1 ? this.x + 30 : this.x - 60;
+      this.hitboxes.push({
+        x: hitboxX, y: this.y - 60, width: 30, height: 40,
+        damage: this.currentMove.damage,
+        hitStun: this.currentMove.hitStun,
+        knockdown: this.currentMove.knockdown,
+        isActive: true
+      });
+    }
+  }
+
+  takeHit(damage, hitStun, knockdown, attackerDir) {
+    this.health = Math.max(0, this.health - damage);
+    this.damageFlash = 10;
+
+    if (knockdown) {
+      this.stateMachine.transition(FighterState.KNOCKDOWN, true);
+      this.setVelocityX(5 * attackerDir);
+      this.setVelocityY(-200);
+    } else {
+      this.stateMachine.transition(FighterState.HIT, true);
+      this.setVelocityX(100 * attackerDir);
+    }
+  }
+
+  move(dir) {
+    if (this.stateMachine.isAttacking() || this.stateMachine.getState() === FighterState.KNOCKDOWN) return;
+    const speed = this.config.walkSpeed;
+    if (dir !== 0) {
+      this.setVelocityX(dir * speed);
+      this.stateMachine.transition(dir === this.direction ? FighterState.WALK_FORWARD : FighterState.WALK_BACK);
+    } else {
+      this.setVelocityX(0);
+      if (this.isGrounded && !this.stateMachine.isAttacking()) {
+        this.stateMachine.transition(FighterState.IDLE);
+      }
+    }
+  }
+
+  jump() {
+    if (!this.isGrounded || this.stateMachine.isAttacking()) return;
+    this.setVelocityY(this.config.jumpForce);
+    this.stateMachine.transition(FighterState.JUMP);
+  }
+
+  update(delta) {
+    if (this.currentMove) this.updateMove();
+
+    this.isGrounded = this.y >= this.groundY;
+    if (this.isGrounded && this.body.velocity.y >= 0) {
+      this.y = this.groundY;
+      this.setVelocityY(0);
+      if (this.stateMachine.getState() === FighterState.KNOCKDOWN) {
+        this.stateMachine.transition(FighterState.IDLE);
+      }
+    }
+
+    if (this.damageFlash > 0) {
+      this.damageFlash--;
+      this.alpha = this.damageFlash % 2 === 0 ? 0.5 : 1;
+    } else {
+      this.alpha = 1;
+    }
+
+    if (this.opponent && !this.stateMachine.isAttacking()) {
+      this.direction = this.opponent.x > this.x ? 1 : -1;
+      this.flipX = this.direction === -1;
+    }
+  }
+}
+
+// === Main Menu Scene ===
+class MainMenuScene extends Phaser.Scene {
+  constructor() { super({ key: 'MainMenuScene' }); }
+
+  create() {
+    const { width, height } = this.scale;
+
+    this.add.text(width / 2, height * 0.2, 'KOF 97', {
+      fontSize: '96px', color: '#ff0', fontStyle: 'bold', stroke: '#f00', strokeThickness: 12
+    }).setOrigin(0.5);
+
+    this.add.text(width / 2, height * 0.28, 'EXHIBITION', {
+      fontSize: '32px', color: '#fff', fontStyle: 'bold', stroke: '#000', strokeThickness: 6
+    }).setOrigin(0.5);
+
+    const menuItems = [
+      { text: 'VS CPU', y: height * 0.45 },
+      { text: 'VS PLAYER', y: height * 0.52 },
+      { text: 'TRAINING', y: height * 0.59 },
+    ];
+
+    menuItems.forEach((item, i) => {
+      const btn = this.add.text(width / 2, item.y, item.text, {
+        fontSize: '36px', color: '#fff', fontStyle: 'bold', stroke: '#000', strokeThickness: 6
+      }).setOrigin(0.5).setInteractive();
+
+      btn.on('pointerover', () => { btn.setColor('#ff0'); });
+      btn.on('pointerout', () => { btn.setColor('#fff'); });
+      btn.on('pointerdown', () => {
+        if (i === 0) this.scene.start('FightScene', { mode: 'vs_cpu' });
+        else if (i === 1) this.scene.start('FightScene', { mode: 'vs_player' });
+        else this.scene.start('FightScene', { mode: 'training' });
+      });
+    });
+
+    this.add.text(width / 2, height - 30, 'Press any menu option to start', {
+      fontSize: '16px', color: '#888'
+    }).setOrigin(0.5);
+  }
+}
+
+// === Fight Scene ===
+class FightScene extends Phaser.Scene {
+  constructor() { super({ key: 'FightScene' }); }
+
+  create(data) {
+    this.gameMode = data?.mode || 'vs_cpu';
+    this.groundY = 300;
+    this.isGameOver = false;
+    this.roundTimer = 99;
+
+    // Create background
+    this.add.rectangle(400, 225, 800, 450, 0x1a1a2e);
+    this.add.rectangle(400, 325, 800, 50, 0x333333);
+
+    // Create fighters
+    this.player1 = new Fighter(this, 200, this.groundY, KYO_CONFIG, 1);
+    this.player2 = new Fighter(this, 600, this.groundY, TERRY_CONFIG, -1);
+    this.player1.setOpponent(this.player2);
+    this.player2.setOpponent(this.player1);
+
+    // Input system
+    this.inputSystem = new InputSystem(this);
+
+    // UI
+    this.createUI();
+
+    // Timer
+    this.timerEvent = this.time.addEvent({
+      delay: 1000, callback: () => {
+        if (!this.isGameOver) {
+          this.roundTimer--;
+          this.timerText.setText(this.roundTimer.toString());
+          if (this.roundTimer <= 0) this.endGame();
+        }
+      }, loop: true
+    });
+
+    // Round start
+    const roundText = this.add.text(400, 200, 'FIGHT!', {
+      fontSize: '72px', color: '#ff0', fontStyle: 'bold', stroke: '#000', strokeThickness: 8
+    }).setOrigin(0.5);
+    this.tweens.add({
+      targets: roundText, alpha: 0, scale: 1.5, duration: 2000, delay: 500,
+      onComplete: () => roundText.destroy()
+    });
+  }
+
+  createUI() {
+    // P1 Health
+    this.p1HealthBg = this.add.graphics();
+    this.p1HealthBg.fillStyle(0x330000);
+    this.p1HealthBg.fillRect(20, 20, 300, 30);
+
+    // P2 Health
+    this.p2HealthBg = this.add.graphics();
+    this.p2HealthBg.fillStyle(0x330000);
+    this.p2HealthBg.fillRect(480, 20, 300, 30);
+
+    // Names
+    this.add.text(20, 55, 'P1: KYO', { fontSize: '18px', color: '#fff', fontStyle: 'bold' });
+    this.add.text(480, 55, 'P2: TERRY', { fontSize: '18px', color: '#fff', fontStyle: 'bold' });
+
+    // Timer
+    this.timerText = this.add.text(400, 35, '99', {
+      fontSize: '48px', color: '#ff0', fontStyle: 'bold', stroke: '#000', strokeThickness: 6
+    }).setOrigin(0.5);
+  }
+
+  updateHealthBars() {
+    const p1Pct = this.player1.health / this.player1.maxHealth;
+    const p2Pct = this.player2.health / this.player2.maxHealth;
+
+    this.p1HealthBg.clear();
+    this.p1HealthBg.fillStyle(0x330000);
+    this.p1HealthBg.fillRect(20, 20, 300, 30);
+    this.p1HealthBg.fillStyle(p1Pct > 0.5 ? 0x00ff00 : p1Pct > 0.25 ? 0xffff00 : 0xff0000);
+    this.p1HealthBg.fillRect(22, 22, 296 * p1Pct, 26);
+
+    this.p2HealthBg.clear();
+    this.p2HealthBg.fillStyle(0x330000);
+    this.p2HealthBg.fillRect(480, 20, 300, 30);
+    this.p2HealthBg.fillStyle(p2Pct > 0.5 ? 0x00ff00 : p2Pct > 0.25 ? 0xffff00 : 0xff0000);
+    this.p2HealthBg.fillRect(482, 22, 296 * p2Pct, 26);
+  }
+
+  updateAI() {
+    if (!this.player2 || !this.player1) return;
+    const ai = this.player2;
+    const player = this.player1;
+    const dist = Math.abs(ai.x - player.x);
+
+    ai.direction = player.x > ai.x ? 1 : -1;
+
+    if (dist < 80 && !ai.stateMachine.isAttacking()) {
+      const rand = Math.random();
+      if (rand < 0.4) ai.startMove(ai.config.moves.lp);
+      else if (rand < 0.6) ai.startMove(ai.config.moves.lk);
+      else if (rand < 0.8) ai.startMove(ai.config.moves.mp);
+      else ai.startMove(ai.config.moves.hk);
+    } else if (dist > 60) {
+      ai.move(ai.direction);
+    } else {
+      ai.move(0);
+    }
+
+    if (ai.stateMachine.isGrounded() && Math.random() < 0.01) ai.jump();
+  }
+
+  checkCollisions() {
+    const p1Hitboxes = this.player1.getHitboxes();
+    const p2Hitboxes = this.player2.getHitboxes();
+
+    // P1 attacks P2
+    p1Hitboxes.forEach(hb => {
+      if (hb.isActive && this.checkHit(hb, this.player2)) {
+        hb.isActive = false;
+        this.player2.takeHit(hb.damage, hb.hitStun, hb.knockdown, this.player1.direction);
+        this.createHitEffect(this.player2.x, this.player2.y - 40);
+      }
+    });
+
+    // P2 attacks P1
+    p2Hitboxes.forEach(hb => {
+      if (hb.isActive && this.checkHit(hb, this.player1)) {
+        hb.isActive = false;
+        this.player1.takeHit(hb.damage, hb.hitStun, hb.knockdown, this.player2.direction);
+        this.createHitEffect(this.player1.x, this.player1.y - 40);
+      }
+    });
+  }
+
+  checkHit(hitbox, target) {
+    return hitbox.x < target.x + 20 && hitbox.x + hitbox.width > target.x - 20 &&
+           hitbox.y < target.y && hitbox.y + hitbox.height > target.y - 80;
+  }
+
+  createHitEffect(x, y) {
+    const spark = this.add.circle(x, y, 20, 0xffff00, 1);
+    this.tweens.add({
+      targets: spark, scale: 1.5, alpha: 0, duration: 200,
+      onComplete: () => spark.destroy()
+    });
+    this.cameras.main.shake(100, 0.01);
+  }
+
+  update(time, delta) {
+    if (this.isGameOver) return;
+
+    const input = this.inputSystem;
+
+    // P1 controls
+    this.player1.move(input.getDirection());
+    if (input.jumpPressed() && !input.getDirection()) this.player1.jump();
+    else if (input.jumpPressed() && input.getDirection()) this.player1.jump();
+    const attack = input.getAttack();
+    if (attack) {
+      const move = this.player1.config.moves[attack];
+      if (move) this.player1.startMove(move);
+    }
+
+    // P2 AI
+    if (this.gameMode === 'vs_cpu') this.updateAI();
+
+    // Update fighters
+    this.player1.update(delta);
+    this.player2.update(delta);
+
+    // Collisions
+    this.checkCollisions();
+
+    // UI
+    this.updateHealthBars();
+
+    // Check KO
+    if (this.player1.health <= 0 || this.player2.health <= 0) {
+      this.endGame();
+    }
+  }
+
+  endGame() {
+    this.isGameOver = true;
+    this.timerEvent.remove();
+
+    let winner = '';
+    if (this.player1.health > 0) winner = 'P1 WINS!';
+    else if (this.player2.health > 0) winner = 'P2 WINS!';
+    else winner = 'DOUBLE KO!';
+
+    const endText = this.add.text(400, 200, winner, {
+      fontSize: '64px', color: '#ff0', fontStyle: 'bold', stroke: '#000', strokeThickness: 8
+    }).setOrigin(0.5);
+
+    this.time.delayedCall(3000, () => {
+      endText.destroy();
+      this.scene.restart();
+    });
+  }
+}
+
+// === Game Config ===
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 450,
+  parent: 'game-container',
+  backgroundColor: '#1a1a2e',
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
+  physics: {
+    default: 'arcade',
+    arcade: {
+      gravity: { x: 0, y: 800 },
+      debug: false
+    }
+  },
+  scene: [MainMenuScene, FightScene]
+};
+
+const game = new Phaser.Game(config);
+  </script>
+</body>
+</html>
