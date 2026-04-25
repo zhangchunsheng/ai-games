@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>星屿幻境 - 治愈消消乐</title>
+    <style>
+        /* 全局样式规范 - 匹配设计稿 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "PingFang SC", "微软雅黑", sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #e8f1ee 0%, #f5eeef 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px 0;
+            /* 全局轻微呼吸明暗动效 */
+            animation: bodyBreath 8s ease-in-out infinite alternate;
+        }
+
+        @keyframes bodyBreath {
+            from { filter: brightness(0.98); }
+            to { filter: brightness(1.02); }
+        }
+
+        /* 顶部状态栏 */
+        .game-header {
+            width: 90%;
+            max-width: 420px;
+            display: flex;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(120, 150, 140, 0.1);
+        }
+
+        .header-item {
+            font-size: 16px;
+            color: #4a5954;
+            font-weight: 500;
+        }
+
+        .header-item strong {
+            color: #2c3a36;
+            font-size: 18px;
+            margin-left: 4px;
+        }
+
+        /* 游戏棋盘容器 */
+        .game-container {
+            width: 90%;
+            max-width: 420px;
+            aspect-ratio: 1;
+            background: rgba(255, 255, 255, 0.4);
+            backdrop-filter: blur(12px);
+            border-radius: 24px;
+            padding: 12px;
+            box-shadow: 0 8px 30px rgba(100, 130, 120, 0.15);
+        }
+
+        .game-board {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 6px;
+        }
+
+        /* 棋子基础样式 - 匹配设计12px圆角、肌理质感 */
+        .cell {
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+            /* 基础磨砂肌理 */
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        /* 棋子选中动效 - 呼吸柔光 */
+        .cell.active {
+            transform: scale(1.05);
+            animation: cellBreath 1s ease-in-out infinite alternate;
+        }
+
+        @keyframes cellBreath {
+            from { box-shadow: 0 0 8px 2px rgba(180, 200, 195, 0.4); }
+            to { box-shadow: 0 0 16px 4px rgba(180, 200, 195, 0.6); }
+        }
+
+        /* 6款幻境棋子样式 - 1:1匹配设计肌理配色 */
+        .chess-dew {
+            background: linear-gradient(145deg, #d6e8f5, #b8d4e8);
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.6);
+        }
+        .chess-moss {
+            background: linear-gradient(145deg, #e2ede8, #c8dccf);
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.5);
+        }
+        .chess-sakura {
+            background: linear-gradient(145deg, #f9e8eb, #f2d6dc);
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.6);
+        }
+        .chess-star {
+            background: linear-gradient(145deg, #faf5e8, #f0e4c8);
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.5);
+        }
+        .chess-cloud {
+            background: linear-gradient(145deg, #f8f9fa, #eef0f2);
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.7);
+        }
+        .chess-snow {
+            background: linear-gradient(145deg, #edf2f4, #dce4e8);
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.6);
+        }
+
+        /* 消除动效 - 肌理收缩消散 */
+        .eliminate {
+            animation: eliminateAnim 0.3s ease forwards;
+        }
+
+        @keyframes eliminateAnim {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0; }
+        }
+
+        /* 棋子下落动效 - 缓冲回弹 */
+        .fall {
+            animation: fallAnim 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        @keyframes fallAnim {
+            0% { transform: translateY(-100%); opacity: 0; }
+            70% { transform: translateY(10%); }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+
+        /* 底部按钮 */
+        .btn-group {
+            margin-top: 20px;
+            display: flex;
+            gap: 12px;
+        }
+
+        .game-btn {
+            padding: 12px 28px;
+            border: none;
+            border-radius: 16px;
+            background: rgba(180, 210, 200, 0.3);
+            backdrop-filter: blur(6px);
+            color: #2c3a36;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .game-btn:active {
+            transform: scale(0.95);
+            background: rgba(180, 210, 200, 0.5);
+        }
+
+        /* 得分粒子微光 */
+        .particle {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            pointer-events: none;
+            animation: particleUp 0.6s ease-out forwards;
+        }
+
+        @keyframes particleUp {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-30px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-header">
+        <div class="header-item">得分：<strong id="score">0</strong></div>
+        <div class="header-item">步数：<strong id="step">30</strong></div>
+    </div>
+
+    <div class="game-container">
+        <div class="game-board" id="board"></div>
+    </div>
+
+    <div class="btn-group">
+        <button class="game-btn" onclick="resetGame()">重新开始</button>
+    </div>
+
+    <script>
+        // 游戏配置 - 匹配设计6种幻境棋子
+        const CHESS_TYPE = [
+            'chess-dew',
+            'chess-moss',
+            'chess-sakura',
+            'chess-star',
+            'chess-cloud',
+            'chess-snow'
+        ];
+        const ROW = 6;
+        const COL = 6;
+        let score = 0;
+        let step = 30;
+        let boardData = [];
+        let selectCell = null;
+        let isMoving = false;
+
+        // 初始化游戏
+        function initGame() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+            boardData = [];
+            score = 0;
+            step = 30;
+            updateHeader();
+
+            // 生成随机棋盘（规避初始三消）
+            for (let i = 0; i < ROW; i++) {
+                boardData[i] = [];
+                for (let j = 0; j < COL; j++) {
+                    let type = getRandomType(i, j);
+                    boardData[i][j] = type;
+                    let cell = createCell(type, i, j);
+                    board.appendChild(cell);
+                }
+            }
+        }
+
+        // 随机棋子类型（防止初始消除）
+        function getRandomType(row, col) {
+            let type;
+            do {
+                type = CHESS_TYPE[Math.floor(Math.random() * CHESS_TYPE.length)];
+            } while (checkInitRepeat(row, col, type));
+            return type;
+        }
+
+        // 检测初始相邻重复，避免开局消除
+        function checkInitRepeat(row, col, type) {
+            // 横向检测
+            if (col >= 2) {
+                if (boardData[row][col-1] === type && boardData[row][col-2] === type) return true;
+            }
+            // 纵向检测
+            if (row >= 2) {
+                if (boardData[row-1][col] === type && boardData[row-2][col] === type) return true;
+            }
+            return false;
+        }
+
+        // 创建棋子DOM
+        function createCell(type, row, col) {
+            let cell = document.createElement('div');
+            cell.className = `cell ${type}`;
+            cell.dataset.row = row;
+            cell.dataset.col = col;
+            cell.onclick = () => cellClick(cell, row, col);
+            return cell;
+        }
+
+        // 棋子点击选中逻辑
+        function cellClick(cell, row, col) {
+            if (isMoving || step <= 0) return;
+
+            // 首次选中
+            if (!selectCell) {
+                selectCell = { cell, row, col };
+                cell.classList.add('active');
+                return;
+            }
+
+            // 二次选中 - 判断是否相邻
+            let last = selectCell;
+            last.cell.classList.remove('active');
+
+            const isNear = (Math.abs(last.row - row) === 1 && last.col === col) 
+                        || (Math.abs(last.col - col) === 1 && last.row === row);
+
+            if (isNear) {
+                swapCell(last.row, last.col, row, col);
+            }
+
+            selectCell = null;
+        }
+
+        // 交换棋子
+        async function swapCell(r1, c1, r2, c2) {
+            isMoving = true;
+            step--;
+            updateHeader();
+
+            // 交换数据
+            [boardData[r1][c1], boardData[r2][c2]] = [boardData[r2][c2], boardData[r1][c1]];
+
+            // 交换DOM
+            let cells = document.querySelectorAll('.cell');
+            let idx1 = r1 * COL + c1;
+            let idx2 = r2 * COL + c2;
+            [cells[idx1].className, cells[idx2].className] = [cells[idx2].className, cells[idx1].className];
+
+            // 检测是否可消除，不可则换回
+            let canEliminate = checkAllEliminate();
+            if (!canEliminate) {
+                await sleep(200);
+                [boardData[r1][c1], boardData[r2][c2]] = [boardData[r2][c2], boardData[r1][c1]];
+                [cells[idx1].className, cells[idx2].className] = [cells[idx2].className, cells[idx1].className];
+            } else {
+                // 持续消除直到无匹配
+                await autoEliminate();
+            }
+
+            isMoving = false;
+        }
+
+        // 检测所有可消除棋子
+        function checkAllEliminate() {
+            let eliminateList = [];
+            // 横向检测三消
+            for (let i = 0; i < ROW; i++) {
+                for (let j = 0; j < COL - 2; j++) {
+                    let t = boardData[i][j];
+                    if (t && t === boardData[i][j+1] && t === boardData[i][j+2]) {
+                        eliminateList.push(`${i}-${j}`, `${i}-${j+1}`, `${i}-${j+2}`);
+                    }
+                }
+            }
+            // 纵向检测三消
+            for (let j = 0; j < COL; j++) {
+                for (let i = 0; i < ROW - 2; i++) {
+                    let t = boardData[i][j];
+                    if (t && t === boardData[i+1][j] && t === boardData[i+2][j]) {
+                        eliminateList.push(`${i}-${j}`, `${i+1}-${j}`, `${i+2}-${j}`);
+                    }
+                }
+            }
+            return [...new Set(eliminateList)];
+        }
+
+        // 自动连锁消除
+        async function autoEliminate() {
+            let list = checkAllEliminate();
+            while (list.length > 0) {
+                // 执行消除动效
+                list.forEach(key => {
+                    let [r, c] = key.split('-').map(Number);
+                    let idx = r * COL + c;
+                    let cell = document.querySelectorAll('.cell')[idx];
+                    cell.classList.add('eliminate');
+                    createParticle(cell);
+                    boardData[r][c] = null;
+                });
+
+                score += list.length * 10;
+                updateHeader();
+                await sleep(300);
+
+                // 棋子下落填充
+                await dropCell();
+                // 顶部补充新棋子
+                await fillCell();
+                await sleep(200);
+
+                list = checkAllEliminate();
+            }
+        }
+
+        // 棋子下落逻辑
+        async function dropCell() {
+            for (let j = 0; j < COL; j++) {
+                for (let i = ROW - 1; i >= 0; i--) {
+                    if (boardData[i][j] === null) {
+                        // 向上找有效棋子
+                        for (let k = i - 1; k >= 0; k--) {
+                            if (boardData[k][j] !== null) {
+                                boardData[i][j] = boardData[k][j];
+                                boardData[k][j] = null;
+                                // 下落动效
+                                let oldIdx = k * COL + j;
+                                let newIdx = i * COL + j;
+                                let cells = document.querySelectorAll('.cell');
+                                cells[newIdx].className = `cell ${boardData[i][j]} fall`;
+                                cells[oldIdx].className = 'cell';
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 顶部填充新棋子
+        async function fillCell() {
+            for (let j = 0; j < COL; j++) {
+                for (let i = 0; i < ROW; i++) {
+                    if (boardData[i][j] === null) {
+                        let newType = CHESS_TYPE[Math.floor(Math.random() * CHESS_TYPE.length)];
+                        boardData[i][j] = newType;
+                        let idx = i * COL + j;
+                        let cell = document.querySelectorAll('.cell')[idx];
+                        cell.className = `cell ${newType} fall`;
+                    }
+                }
+            }
+        }
+
+        // 创建消除微光粒子
+        function createParticle(cell) {
+            let rect = cell.getBoundingClientRect();
+            for (let i = 0; i < 4; i++) {
+                let p = document.createElement('div');
+                p.className = 'particle';
+                p.style.left = `${rect.left + rect.width/2 + (Math.random()-0.5)*20}px`;
+                p.style.top = `${rect.top + rect.height/2}px`;
+                p.style.background = getComputedStyle(cell).background;
+                document.body.appendChild(p);
+                setTimeout(() => p.remove(), 600);
+            }
+        }
+
+        // 更新顶部数据
+        function updateHeader() {
+            document.getElementById('score').innerText = score;
+            document.getElementById('step').innerText = step;
+        }
+
+        // 重置游戏
+        function resetGame() {
+            initGame();
+        }
+
+        // 延时函数
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // 页面加载初始化
+        window.onload = initGame;
+    </script>
+</body>
+</html>
